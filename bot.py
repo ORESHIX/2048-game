@@ -3,7 +3,7 @@ from telebot import types
 
 # --- НАСТРОЙКИ ---
 # ВАЖНО: Замените 'YOUR_BOT_TOKEN' на токен, который вы получили от BotFather
-TOKEN = '7720286113:AAE6fP1BaB_gDiGNpC-V5orrzVOzv9nd7XY'
+TOKEN = ''
 
 # ВАЖНО: Замените этот URL на публичный HTTPS-адрес, где размещен ваш файл game_2048.html
 GAME_URL = 'https://oreshix.github.io/2048-game/' 
@@ -44,3 +44,4 @@ try:
     bot.polling(none_stop=True)
 except Exception as e:
     print(f"Ошибка при запуске бота: {e}")
+
