@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>2048 Игра</title>
+    <!-- Подключение Tailwind CSS для стилей -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Скрипт для интеграции с Telegram -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* Основной стиль для приложения, чтобы оно занимало весь экран и было отзывчивым */
+        body {
+            touch-action: none; /* Отключаем стандартное поведение браузера на тач-события (прокрутку, зум) */
+            overscroll-behavior: none;
+            font-family: 'Inter', sans-serif;
+            -webkit-user-select: none; /* Safari */
+            -ms-user-select: none; /* IE 10+ */
+            user-select: none; /* Standard */
+        }
+        
+        /* Стили для игровых плиток */
+        .tile {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            border-radius: 0.5rem;
+            transition: transform 0.1s ease-in-out, background-color 0.1s ease-in-out;
+            position: absolute;
+        }
+        
+        /* Анимация появления новой плитки */
+        .tile-new {
+            animation: appear 0.2s ease-in-out;
+        }
+
+        @keyframes appear {
+            0% {
+                opacity: 0;
+                transform: scale(0.5);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        /* Цвета для плиток */
+        .tile-2 { background-color: #eee4da; color: #776e65; }
+        .tile-4 { background-color: #ede0c8; color: #776e65; }
+        .tile-8 { background-color: #f2b179; color: #f9f6f2; }
+        .tile-16 { background-color: #f59563; color: #f9f6f2; }
+        .tile-32 { background-color: #f67c5f; color: #f9f6f2; }
+        .tile-64 { background-color: #f65e3b; color: #f9f6f2; }
+        .tile-128 { background-color: #edcf72; color: #f9f6f2; font-size: 0.9em; }
+        .tile-256 { background-color: #edcc61; color: #f9f6f2; font-size: 0.9em; }
+        .tile-512 { background-color: #edc850; color: #f9f6f2; font-size: 0.9em; }
+        .tile-1024 { background-color: #edc53f; color: #f9f6f2; font-size: 0.8em; }
+        .tile-2048 { background-color: #edc22e; color: #f9f6f2; font-size: 0.8em; }
+        .tile-4096 { background-color: #3c3a32; color: #f9f6f2; font-size: 0.8em; }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4 overflow-hidden">
+
+    <div class="w-full max-w-md mx-auto">
+        <!-- Шапка: Название, счет и кнопка "Новая игра" -->
+        <header class="flex items-center justify-between mb-4">
+            <h1 class="text-4xl font-bold text-gray-700">2048</h1>
+            <div class="flex items-center space-x-2">
+                <div class="bg-gray-300 p-2 rounded-lg text-center">
+                    <div class="text-xs font-bold text-gray-500">СЧЕТ</div>
+                    <div id="score" class="text-xl font-bold text-white">0</div>
+                </div>
+                <button id="new-game-button" class="bg-orange-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-orange-600 transition">Новая игра</button>
+            </div>
+        </header>
+
+        <!-- Игровое поле -->
+        <main id="game-container" class="bg-gray-300 rounded-lg p-3 relative select-none">
+            <!-- Сетка для пустых ячеек (фон) -->
+            <div id="grid-background" class="grid grid-cols-4 grid-rows-4 gap-3">
+                <!-- Ячейки будут созданы через JS -->
+            </div>
+            <!-- Контейнер для анимированных плиток -->
+            <div id="grid-tiles" class="absolute top-0 left-0 right-0 bottom-0 p-3">
+                <!-- Плитки будут созданы через JS -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Оверлей для сообщения "Игра окончена" -->
+    <div id="game-over-overlay" class="absolute inset-0 bg-white bg-opacity-75 flex-col items-center justify-center text-center hidden">
+        <h2 class="text-5xl font-bold text-gray-700">Игра окончена!</h2>
+        <p class="mt-2 text-gray-600">Попробуйте еще раз.</p>
+        <button id="try-again-button" class="mt-4 bg-orange-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-orange-600 transition text-lg">Попробовать снова</button>
+    </div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Инициализация Telegram Web App
+            try {
+                if (window.Telegram && window.Telegram.WebApp) {
+                    window.Telegram.WebApp.ready();
+                    window.Telegram.WebApp.expand(); // Расширяем приложение на весь экран
+                }
+            } catch (e) {
+                console.error("Telegram Web App script not loaded or failed.", e);
+            }
+
+            const gridTiles = document.getElementById('grid-tiles');
+            const gridBackground = document.getElementById('grid-background');
+            const scoreEl = document.getElementById('score');
+            const gameOverOverlay = document.getElementById('game-over-overlay');
+            const newGameButton = document.getElementById('new-game-button');
+            const tryAgainButton = document.getElementById('try-again-button');
+
+            const GRID_SIZE = 4;
+            let board = [];
+            let score = 0;
+            let isLocked = false;
+
+            // --- Инициализация игры ---
+
+            function setupGame() {
+                board = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(0));
+                score = 0;
+                updateScore(0);
+                gameOverOverlay.classList.add('hidden');
+                gridTiles.innerHTML = '';
+                setupBackgroundGrid();
+                addRandomTile();
+                addRandomTile();
+            }
+
+            function setupBackgroundGrid() {
+                gridBackground.innerHTML = '';
+                for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'w-16 h-16 md:w-20 md:h-20 bg-gray-400 rounded-lg';
+                    gridBackground.appendChild(cell);
+                }
+                adjustGridSize();
+            }
+
+            function adjustGridSize() {
+                const containerWidth = gridBackground.clientWidth;
+                const gap = (containerWidth - (4 * (containerWidth / 4.5))) / 3; // Расчет отступов
+                const cellSize = (containerWidth - 3 * gap) / 4;
+
+                gridBackground.style.gap = `${gap}px`;
+                const cells = gridBackground.querySelectorAll('div');
+                cells.forEach(cell => {
+                    cell.style.width = `${cellSize}px`;
+                    cell.style.height = `${cellSize}px`;
+                });
+                renderBoard();
+            }
+
+
+            // --- Логика игры ---
+
+            function addRandomTile() {
+                const emptyCells = [];
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        if (board[r][c] === 0) {
+                            emptyCells.push({ r, c });
+                        }
+                    }
+                }
+
+                if (emptyCells.length > 0) {
+                    const { r, c } = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+                    board[r][c] = Math.random() > 0.9 ? 4 : 2; // 10% шанс на 4
+                    renderBoard(true); // Рендерим с анимацией для новой плитки
+                }
+            }
+
+            function renderBoard(animateNew = false) {
+                gridTiles.innerHTML = '';
+                const containerWidth = gridBackground.clientWidth;
+                const gap = parseFloat(gridBackground.style.gap);
+                const cellSize = (containerWidth - 3 * gap) / 4;
+
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        const value = board[r][c];
+                        if (value !== 0) {
+                            const tile = document.createElement('div');
+                            tile.textContent = value;
+                            
+                            const top = r * (cellSize + gap);
+                            const left = c * (cellSize + gap);
+
+                            tile.style.width = `${cellSize}px`;
+                            tile.style.height = `${cellSize}px`;
+                            tile.style.top = `${top}px`;
+                            tile.style.left = `${left}px`;
+
+                            const fontSize = cellSize * 0.4;
+                            tile.style.fontSize = `${Math.min(fontSize, 48)}px`; // Ограничение максимального размера шрифта
+                            
+                            tile.className = `tile tile-${value}`;
+                            if (animateNew && value === 2 || value === 4) { // Упрощенная проверка на новую плитку
+                                tile.classList.add('tile-new');
+                            }
+                            
+                            gridTiles.appendChild(tile);
+                        }
+                    }
+                }
+            }
+            
+            function updateScore(value) {
+                score += value;
+                scoreEl.textContent = score;
+            }
+
+            // --- Механика движения плиток ---
+
+            function move(direction) {
+                if (isLocked) return;
+                isLocked = true;
+                
+                const boardBefore = JSON.stringify(board);
+                let boardAfter;
+
+                switch (direction) {
+                    case 'ArrowUp':
+                        board = rotate(board);
+                        board = moveLeft(board);
+                        board = rotate(rotate(rotate(board)));
+                        break;
+                    case 'ArrowDown':
+                        board = rotate(board);
+                        board = moveRight(board);
+                        board = rotate(rotate(rotate(board)));
+                        break;
+                    case 'ArrowLeft':
+                        board = moveLeft(board);
+                        break;
+                    case 'ArrowRight':
+                        board = moveRight(board);
+                        break;
+                }
+                
+                boardAfter = JSON.stringify(board);
+
+                if (boardBefore !== boardAfter) {
+                    addRandomTile();
+                }
+
+                renderBoard();
+
+                if (isGameOver()) {
+                    gameOverOverlay.classList.remove('hidden');
+                    gameOverOverlay.classList.add('flex');
+                }
+                
+                setTimeout(() => { isLocked = false; }, 150);
+            }
+            
+            function slide(row) {
+                const arr = row.filter(val => val);
+                const missing = GRID_SIZE - arr.length;
+                const zeros = Array(missing).fill(0);
+                return arr.concat(zeros);
+            }
+
+            function combine(row) {
+                for (let i = 0; i < GRID_SIZE - 1; i++) {
+                    if (row[i] !== 0 && row[i] === row[i + 1]) {
+                        row[i] *= 2;
+                        updateScore(row[i]);
+                        row[i + 1] = 0;
+                    }
+                }
+                return row;
+            }
+
+            function moveLeft(currentBoard) {
+                return currentBoard.map(row => {
+                    row = slide(row);
+                    row = combine(row);
+                    row = slide(row);
+                    return row;
+                });
+            }
+
+            function moveRight(currentBoard) {
+                 return currentBoard.map(row => {
+                    row.reverse();
+                    row = slide(row);
+                    row = combine(row);
+                    row = slide(row);
+                    row.reverse();
+                    return row;
+                });
+            }
+            
+            function rotate(currentBoard) {
+                const newBoard = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(0));
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        newBoard[c][GRID_SIZE - 1 - r] = currentBoard[r][c];
+                    }
+                }
+                return newBoard;
+            }
+            
+            // --- Проверка на конец игры ---
+
+            function isGameOver() {
+                for (let r = 0; r < GRID_SIZE; r++) {
+                    for (let c = 0; c < GRID_SIZE; c++) {
+                        if (board[r][c] === 0) return false; // Есть пустые клетки
+                        if (r < GRID_SIZE - 1 && board[r][c] === board[r + 1][c]) return false; // Можно сдвинуть вниз
+                        if (c < GRID_SIZE - 1 && board[r][c] === board[r][c + 1]) return false; // Можно сдвинуть вправо
+                    }
+                }
+                return true;
+            }
+
+            // --- Обработчики событий ---
+
+            document.addEventListener('keydown', (e) => {
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                    e.preventDefault();
+                    move(e.key);
+                }
+            });
+
+            // Обработка свайпов на мобильных
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchEndX = 0;
+            let touchEndY = 0;
+            
+            gridTiles.addEventListener('touchstart', (e) => {
+                touchStartX = e.changedTouches[0].screenX;
+                touchStartY = e.changedTouches[0].screenY;
+            });
+
+            gridTiles.addEventListener('touchend', (e) => {
+                touchEndX = e.changedTouches[0].screenX;
+                touchEndY = e.changedTouches[0].screenY;
+                handleSwipe();
+            });
+
+            function handleSwipe() {
+                const dx = touchEndX - touchStartX;
+                const dy = touchEndY - touchStartY;
+                const absDx = Math.abs(dx);
+                const absDy = Math.abs(dy);
+
+                if (Math.max(absDx, absDy) > 30) { // Минимальная дистанция для свайпа
+                    if (absDx > absDy) {
+                        move(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
+                    } else {
+                        move(dy > 0 ? 'ArrowDown' : 'ArrowUp');
+                    }
+                }
+            }
+
+            newGameButton.addEventListener('click', setupGame);
+            tryAgainButton.addEventListener('click', setupGame);
+
+            // --- Запуск ---
+            window.addEventListener('resize', adjustGridSize);
+            setupGame();
+        });
+    </script>
+</body>
+</html>
